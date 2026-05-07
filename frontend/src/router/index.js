@@ -5,12 +5,14 @@ import TestSuites from "../views/TestSuites.vue";
 import TestRunCreate from "../views/TestRunCreate.vue";
 import TestRunResults from "../views/TestRunResults.vue";
 import PromptVersions from "../views/PromptVersions.vue";
+import ModelConfigs from "../views/ModelConfigs.vue";
 
 const routes = [
   { path: "/", name: "dashboard", component: Dashboard },
   { path: "/test-targets", name: "test-targets", component: TestTargets },
   { path: "/test-suites", name: "test-suites", component: TestSuites },
   { path: "/prompt-versions", name: "prompt-versions", component: PromptVersions },
+  { path: "/model-configs", name: "model-configs", component: ModelConfigs },
   { path: "/test-runs/create", name: "test-run-create", component: TestRunCreate },
   { path: "/test-runs/results", name: "test-run-results", component: TestRunResults }
 ];
