@@ -1,0 +1,4 @@
+﻿case_id,case_name,input_text,assert_type,expected_value
+TC001,基础包含断言,请根据输入返回测试响应,contains,Mock
+TC002,正则断言,请返回一个模拟响应,regex,Mock.*
+TC003,JSON格式断言,请返回JSON格式结果,json_valid,true
