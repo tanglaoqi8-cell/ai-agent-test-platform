@@ -55,6 +55,12 @@
     <el-dialog v-model="detailVisible" :title="`Prompt 执行详情 - 执行批次ID ${detailRunId || '-'}`" width="80%" @closed="closeDetail">
       <div v-loading="detailLoading">
         <template v-if="detailData">
+          <div class="detail-actions">
+            <el-button type="primary" @click="openScoreDialog">发起 LLM 自动评分</el-button>
+            <el-button type="warning" @click="openManualReviewDialog">提交人工复核</el-button>
+            <el-button @click="refreshDetail">刷新详情</el-button>
+          </div>
+
           <div class="section-title">基本信息</div>
           <el-descriptions :column="2" border>
             <el-descriptions-item label="执行批次ID">{{ normalizedRunBasicInfo.run_id }}</el-descriptions-item>
@@ -157,13 +163,76 @@
         <el-button type="primary" @click="outputDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="scoreDialogVisible" title="发起 LLM 自动评分" width="640px" @closed="resetScoreDialog">
+      <el-form ref="scoreFormRef" :model="scoreForm" :rules="scoreFormRules" label-width="130px">
+        <el-form-item label="评分模型配置" prop="scorer_model_config_id">
+          <el-select
+            v-model="scoreForm.scorer_model_config_id"
+            class="w-100"
+            placeholder="请选择评分模型配置"
+            :loading="scorerOptionsLoading"
+          >
+            <el-option
+              v-for="item in scorerModelConfigs"
+              :key="item.id"
+              :label="`${item.id} - ${item.config_name || '-'} - ${item.model || '-'}`"
+              :value="item.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="预期行为">
+          <el-input
+            v-model="scoreForm.expected_behavior"
+            type="textarea"
+            :rows="4"
+            placeholder="输出应围绕用户输入进行回答，并满足断言或业务预期。"
+          />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="scoreForm.remark" type="textarea" :rows="3" placeholder="可选" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="scoreDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="scoreSubmitting" @click="submitScore">提交</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="manualReviewDialogVisible" title="提交人工复核" width="640px" @closed="resetManualReviewDialog">
+      <el-form ref="manualReviewFormRef" :model="manualReviewForm" :rules="manualReviewRules" label-width="120px">
+        <el-form-item label="人工判定" prop="manual_status">
+          <el-select v-model="manualReviewForm.manual_status" class="w-100" placeholder="请选择人工判定">
+            <el-option label="通过" value="passed" />
+            <el-option label="失败" value="failed" />
+            <el-option label="待确认" value="pending" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="人工备注">
+          <el-input v-model="manualReviewForm.manual_remark" type="textarea" :rows="4" placeholder="可选" />
+        </el-form-item>
+        <el-form-item label="复核人">
+          <el-input v-model="manualReviewForm.reviewer" placeholder="可选" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="manualReviewDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="manualReviewSubmitting" @click="submitManualReview">提交</el-button>
+      </template>
+    </el-dialog>
   </el-space>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
-import { getPromptTestRunDetail, getPromptTestRuns } from "../api/promptTestRuns";
+import { getModelConfigs } from "../api/modelConfigs";
+import {
+  createPromptManualReview,
+  getPromptTestRunDetail,
+  getPromptTestRuns,
+  scorePromptTestRun
+} from "../api/promptTestRuns";
 import { formatDateTimeToChina } from "../utils/time";
 
 const listLoading = ref(false);
@@ -176,6 +245,34 @@ const runIdKeyword = ref("");
 const statusFilter = ref("all");
 const outputDialogVisible = ref(false);
 const outputDialogText = ref("");
+const scoreDialogVisible = ref(false);
+const scoreSubmitting = ref(false);
+const scorerOptionsLoading = ref(false);
+const scorerModelConfigs = ref([]);
+const scoreFormRef = ref(null);
+const manualReviewDialogVisible = ref(false);
+const manualReviewSubmitting = ref(false);
+const manualReviewFormRef = ref(null);
+
+const scoreForm = reactive({
+  scorer_model_config_id: null,
+  expected_behavior: "",
+  remark: ""
+});
+
+const scoreFormRules = {
+  scorer_model_config_id: [{ required: true, message: "请选择评分模型配置", trigger: "change" }]
+};
+
+const manualReviewForm = reactive({
+  manual_status: "",
+  manual_remark: "",
+  reviewer: ""
+});
+
+const manualReviewRules = {
+  manual_status: [{ required: true, message: "请选择人工判定", trigger: "change" }]
+};
 
 const filteredRuns = computed(() => {
   const keyword = runIdKeyword.value.trim();
@@ -470,10 +567,127 @@ async function openDetail(row) {
   }
 }
 
+async function refreshDetail(showSuccess = false) {
+  if (!detailRunId.value) return;
+  await refreshDetailByRunId(detailRunId.value, showSuccess);
+}
+
+async function refreshDetailByRunId(runId, showSuccess = false) {
+  if (!runId) return false;
+  detailLoading.value = true;
+  try {
+    const { data } = await getPromptTestRunDetail(runId);
+    detailData.value = data;
+    if (showSuccess) ElMessage.success("详情已刷新");
+    return true;
+  } catch (error) {
+    ElMessage.error(error.message || "刷新详情失败");
+    return false;
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+async function loadScorerModelConfigs() {
+  if (scorerModelConfigs.value.length > 0) return;
+  scorerOptionsLoading.value = true;
+  try {
+    const { data } = await getModelConfigs();
+    scorerModelConfigs.value = Array.isArray(data) ? data : data?.items || [];
+  } catch (error) {
+    ElMessage.error(error.message || "加载模型配置失败");
+  } finally {
+    scorerOptionsLoading.value = false;
+  }
+}
+
+async function openScoreDialog() {
+  await loadScorerModelConfigs();
+  scoreDialogVisible.value = true;
+}
+
+function resetScoreDialog() {
+  scoreForm.scorer_model_config_id = null;
+  scoreForm.expected_behavior = "";
+  scoreForm.remark = "";
+  scoreSubmitting.value = false;
+  scoreFormRef.value?.clearValidate();
+}
+
+async function submitScore() {
+  if (!detailRunId.value || !scoreFormRef.value) return;
+  const valid = await scoreFormRef.value.validate().catch(() => false);
+  if (!valid) return;
+
+  const runId = detailRunId.value;
+  scoreSubmitting.value = true;
+  try {
+    await scorePromptTestRun(runId, {
+      scorer_model_config_id: scoreForm.scorer_model_config_id,
+      expected_behavior: scoreForm.expected_behavior || "",
+      remark: scoreForm.remark || ""
+    });
+    ElMessage.success("评分完成");
+    resetScoreDialog();
+    scoreDialogVisible.value = false;
+    await nextTick();
+    let refreshed = await refreshDetailByRunId(runId, false);
+    if (!refreshed || !detailData.value?.latest_score) {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      await refreshDetailByRunId(runId, false);
+    }
+  } catch (error) {
+    const message = error.message || "评分失败";
+    if (String(message).toLowerCase().includes("timeout")) {
+      ElMessage.error("LLM 评分时间较长，请稍后重试或检查后端/模型服务状态。");
+    } else {
+      ElMessage.error(message);
+    }
+  } finally {
+    scoreSubmitting.value = false;
+  }
+}
+
+function openManualReviewDialog() {
+  manualReviewDialogVisible.value = true;
+}
+
+function resetManualReviewDialog() {
+  manualReviewForm.manual_status = "";
+  manualReviewForm.manual_remark = "";
+  manualReviewForm.reviewer = "";
+  manualReviewSubmitting.value = false;
+  manualReviewFormRef.value?.clearValidate();
+}
+
+async function submitManualReview() {
+  if (!detailRunId.value || !manualReviewFormRef.value) return;
+  const valid = await manualReviewFormRef.value.validate().catch(() => false);
+  if (!valid) return;
+
+  manualReviewSubmitting.value = true;
+  try {
+    await createPromptManualReview(detailRunId.value, {
+      manual_status: manualReviewForm.manual_status,
+      manual_remark: manualReviewForm.manual_remark || "",
+      reviewer: manualReviewForm.reviewer || ""
+    });
+    ElMessage.success("人工复核已提交");
+    manualReviewDialogVisible.value = false;
+    await refreshDetail(false);
+  } catch (error) {
+    ElMessage.error(error.message || "人工复核提交失败");
+  } finally {
+    manualReviewSubmitting.value = false;
+  }
+}
+
 function closeDetail() {
   detailData.value = null;
   detailRunId.value = null;
   detailLoading.value = false;
+  scoreDialogVisible.value = false;
+  manualReviewDialogVisible.value = false;
 }
 
 onMounted(fetchRuns);
@@ -514,6 +728,13 @@ onMounted(fetchRuns);
   font-weight: 600;
 }
 
+.detail-actions {
+  margin-bottom: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .block-label {
   margin: 10px 0 6px;
   color: #374151;
@@ -537,5 +758,9 @@ onMounted(fetchRuns);
 
 .single-result {
   margin-bottom: 8px;
+}
+
+.w-100 {
+  width: 100%;
 }
 </style>

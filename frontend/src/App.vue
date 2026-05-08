@@ -13,6 +13,7 @@
         <el-menu-item index="/prompt-versions">Prompt 版本管理</el-menu-item>
         <el-menu-item index="/model-configs">模型配置管理</el-menu-item>
         <el-menu-item index="/prompt-run-once">Prompt 单轮执行</el-menu-item>
+        <el-menu-item index="/prompt-run-repeat">Prompt 重复执行</el-menu-item>
         <el-menu-item index="/prompt-run-results">Prompt 执行记录</el-menu-item>
         <el-menu-item index="/test-runs/create">测试执行</el-menu-item>
         <el-menu-item index="/test-runs/results">执行结果</el-menu-item>

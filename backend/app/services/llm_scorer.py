@@ -7,6 +7,7 @@ from urllib import error, request
 from .prompt_executor import _read_api_key
 
 SCORING_TEMPLATE_ID = "default_prompt_score_v0.6"
+SCORER_TIMEOUT_SECONDS = 300
 
 
 def _build_chat_completions_url(base_url):
@@ -172,7 +173,7 @@ def score_prompt_run(scorer_model_config, score_context):
     raw_response = None
     try:
         req = request.Request(url=url, data=body, headers=headers, method="POST")
-        with request.urlopen(req, timeout=60) as resp:
+        with request.urlopen(req, timeout=SCORER_TIMEOUT_SECONDS) as resp:
             raw_response = resp.read().decode("utf-8", errors="replace")
 
         try:
