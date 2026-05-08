@@ -19,7 +19,9 @@
           <el-table-column prop="id" label="执行批次ID" width="110" />
           <el-table-column prop="target_id" label="测试对象ID" width="110" />
           <el-table-column prop="suite_id" label="用例集ID" width="100" />
-          <el-table-column prop="created_at" label="执行时间" min-width="160" />
+          <el-table-column label="执行时间" min-width="160">
+            <template #default="scope">{{ formatDateTimeToChina(scope.row.created_at) }}</template>
+          </el-table-column>
           <el-table-column label="操作" width="120">
             <template #default="scope">
               <el-button link type="primary" @click.stop="handleExport(scope.row.id)">导出 CSV</el-button>
@@ -117,6 +119,7 @@
 import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { exportTestRunCsv, getTestRuns, getTestRunResults } from "../api/testRuns";
+import { formatDateTimeToChina } from "../utils/time";
 
 const runs = ref([]);
 const results = ref([]);

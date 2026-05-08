@@ -27,8 +27,12 @@
         </el-table-column>
         <el-table-column prop="status" label="状态" width="100" />
         <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="created_at" label="创建时间" min-width="160" />
-        <el-table-column prop="updated_at" label="更新时间" min-width="160" />
+        <el-table-column label="创建时间" min-width="160">
+          <template #default="scope">{{ formatDateTimeToChina(scope.row.created_at) }}</template>
+        </el-table-column>
+        <el-table-column label="更新时间" min-width="160">
+          <template #default="scope">{{ formatDateTimeToChina(scope.row.updated_at) }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="130" fixed="right">
           <template #default="scope">
             <el-button link type="primary" @click="openViewDialog(scope.row.id)">查看</el-button>
@@ -124,8 +128,8 @@
         <el-descriptions-item label="是否默认">{{ viewDetail.is_default ? "是" : "否" }}</el-descriptions-item>
         <el-descriptions-item label="状态">{{ viewDetail.status }}</el-descriptions-item>
         <el-descriptions-item label="备注" :span="2">{{ viewDetail.remark || "-" }}</el-descriptions-item>
-        <el-descriptions-item label="创建时间">{{ viewDetail.created_at || "-" }}</el-descriptions-item>
-        <el-descriptions-item label="更新时间">{{ viewDetail.updated_at || "-" }}</el-descriptions-item>
+        <el-descriptions-item label="创建时间">{{ formatDateTimeToChina(viewDetail.created_at) }}</el-descriptions-item>
+        <el-descriptions-item label="更新时间">{{ formatDateTimeToChina(viewDetail.updated_at) }}</el-descriptions-item>
       </el-descriptions>
 
       <template #footer>
@@ -139,6 +143,7 @@
 import { onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { createModelConfig, getModelConfigDetail, getModelConfigs, updateModelConfig } from "../api/modelConfigs";
+import { formatDateTimeToChina } from "../utils/time";
 
 const listLoading = ref(false);
 const list = ref([]);
