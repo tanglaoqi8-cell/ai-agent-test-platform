@@ -186,9 +186,12 @@ watch(
 async function fetchOptions() {
   optionsLoading.value = true;
   try {
-    const [promptRes, modelRes] = await Promise.all([getPromptVersions(), getModelConfigs()]);
-    promptVersions.value = normalizeList(promptRes.data);
-    modelConfigs.value = normalizeList(modelRes.data);
+    const [promptRes, modelRes] = await Promise.all([
+      getPromptVersions({ status: "active" }),
+      getModelConfigs({ status: "active" })
+    ]);
+    promptVersions.value = normalizeList(promptRes.data).filter((item) => item?.status === "active");
+    modelConfigs.value = normalizeList(modelRes.data).filter((item) => item?.status === "active");
   } catch (error) {
     ElMessage.error(error.message || "加载下拉数据失败");
   } finally {

@@ -1,7 +1,7 @@
-﻿import request from "./request";
+import request from "./request";
 
-export function getPromptVersions() {
-  return request.get("/prompt-versions");
+export function getPromptVersions(params) {
+  return request.get("/prompt-versions", { params });
 }
 
 export function getPromptVersionDetail(promptVersionId) {
@@ -14,4 +14,12 @@ export function createPromptVersion(data) {
 
 export function updatePromptVersion(promptVersionId, data) {
   return request.put(`/prompt-versions/${promptVersionId}`, data);
+}
+
+export function updatePromptVersionStatus(promptVersionId, status) {
+  return request.put(`/prompt-versions/${promptVersionId}/status`, { status });
+}
+
+export function deletePromptVersion(promptVersionId) {
+  return request.delete(`/prompt-versions/${promptVersionId}`);
 }

@@ -21,7 +21,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="baseline_version_id" label="基线版本ID" width="120" />
-        <el-table-column prop="status" label="状态" width="110" />
+        <el-table-column label="状态" width="110">
+          <template #default="scope">
+            <el-tag :type="statusTagType(scope.row.status)">{{ statusText(scope.row.status) }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip />
         <el-table-column label="创建时间" min-width="170">
           <template #default="scope">{{ formatDateTimeToChina(scope.row.created_at) }}</template>
@@ -29,10 +33,37 @@
         <el-table-column label="更新时间" min-width="170">
           <template #default="scope">{{ formatDateTimeToChina(scope.row.updated_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="140" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="scope">
             <el-button link type="primary" @click="openViewDialog(scope.row.id)">查看</el-button>
             <el-button link type="primary" @click="openEditDialog(scope.row.id)">编辑</el-button>
+            <el-button
+              v-if="scope.row.status === 'active'"
+              link
+              type="warning"
+              :loading="actionLoadingId === scope.row.id"
+              @click="handleUpdateStatus(scope.row, 'inactive')"
+            >
+              禁用
+            </el-button>
+            <el-button
+              v-if="scope.row.status === 'inactive'"
+              link
+              type="success"
+              :loading="actionLoadingId === scope.row.id"
+              @click="handleUpdateStatus(scope.row, 'active')"
+            >
+              启用
+            </el-button>
+            <el-button
+              v-if="scope.row.status !== 'deleted'"
+              link
+              type="danger"
+              :loading="actionLoadingId === scope.row.id"
+              @click="handleDelete(scope.row)"
+            >
+              删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -95,7 +126,7 @@
         <el-descriptions-item label="版本号">{{ viewDetail.version }}</el-descriptions-item>
         <el-descriptions-item label="是否基线版本">{{ viewDetail.is_baseline ? "是" : "否" }}</el-descriptions-item>
         <el-descriptions-item label="基线版本ID">{{ viewDetail.baseline_version_id ?? "-" }}</el-descriptions-item>
-        <el-descriptions-item label="状态">{{ viewDetail.status }}</el-descriptions-item>
+        <el-descriptions-item label="状态">{{ statusText(viewDetail.status) }}</el-descriptions-item>
         <el-descriptions-item label="备注" :span="2">{{ viewDetail.remark || "-" }}</el-descriptions-item>
         <el-descriptions-item label="创建时间">{{ formatDateTimeToChina(viewDetail.created_at) }}</el-descriptions-item>
         <el-descriptions-item label="更新时间">{{ formatDateTimeToChina(viewDetail.updated_at) }}</el-descriptions-item>
@@ -113,12 +144,20 @@
 
 <script setup>
 import { onMounted, reactive, ref } from "vue";
-import { ElMessage } from "element-plus";
-import { createPromptVersion, getPromptVersionDetail, getPromptVersions, updatePromptVersion } from "../api/promptVersions";
+import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  createPromptVersion,
+  deletePromptVersion,
+  getPromptVersionDetail,
+  getPromptVersions,
+  updatePromptVersion,
+  updatePromptVersionStatus
+} from "../api/promptVersions";
 import { formatDateTimeToChina } from "../utils/time";
 
 const listLoading = ref(false);
 const list = ref([]);
+const actionLoadingId = ref(null);
 
 const formDialogVisible = ref(false);
 const viewDialogVisible = ref(false);
@@ -148,6 +187,19 @@ const formRules = {
 
 function normalizeListResponse(data) {
   return Array.isArray(data) ? data : data?.items || [];
+}
+
+function statusText(status) {
+  if (status === "active") return "启用";
+  if (status === "inactive") return "禁用";
+  if (status === "deleted") return "已删除";
+  return status || "-";
+}
+
+function statusTagType(status) {
+  if (status === "active") return "success";
+  if (status === "inactive") return "warning";
+  return "info";
 }
 
 function normalizeDetailToForm(detail) {
@@ -190,11 +242,59 @@ async function fetchList() {
   listLoading.value = true;
   try {
     const { data } = await getPromptVersions();
-    list.value = normalizeListResponse(data);
+    list.value = normalizeListResponse(data).filter((item) => item?.status !== "deleted");
   } catch (error) {
     ElMessage.error(error.message || "获取 Prompt 版本列表失败");
   } finally {
     listLoading.value = false;
+  }
+}
+
+async function handleUpdateStatus(row, targetStatus) {
+  const promptVersionId = row?.id;
+  if (!promptVersionId) return;
+  const isActive = targetStatus === "active";
+  const title = isActive ? "确认启用该 Prompt 版本吗？" : "确认禁用该 Prompt 版本吗？禁用后不会出现在执行页面下拉框中。";
+  try {
+    await ElMessageBox.confirm(title, "提示", { type: "warning", confirmButtonText: "确认", cancelButtonText: "取消" });
+  } catch {
+    return;
+  }
+
+  actionLoadingId.value = promptVersionId;
+  try {
+    await updatePromptVersionStatus(promptVersionId, targetStatus);
+    ElMessage.success(isActive ? "启用成功" : "禁用成功");
+    await fetchList();
+  } catch (error) {
+    ElMessage.error(error.message || "状态更新失败");
+  } finally {
+    actionLoadingId.value = null;
+  }
+}
+
+async function handleDelete(row) {
+  const promptVersionId = row?.id;
+  if (!promptVersionId) return;
+  try {
+    await ElMessageBox.confirm(
+      "确认删除该 Prompt 版本吗？删除后默认不再显示，但不会影响历史执行记录。",
+      "二次确认",
+      { type: "warning", confirmButtonText: "确认删除", cancelButtonText: "取消" }
+    );
+  } catch {
+    return;
+  }
+
+  actionLoadingId.value = promptVersionId;
+  try {
+    await deletePromptVersion(promptVersionId);
+    ElMessage.success("删除成功");
+    await fetchList();
+  } catch (error) {
+    ElMessage.error(error.message || "删除失败");
+  } finally {
+    actionLoadingId.value = null;
   }
 }
 

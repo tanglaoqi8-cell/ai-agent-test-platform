@@ -737,8 +737,9 @@ async function loadScorerModelConfigs() {
   if (scorerModelConfigs.value.length > 0) return;
   scorerOptionsLoading.value = true;
   try {
-    const { data } = await getModelConfigs();
-    scorerModelConfigs.value = Array.isArray(data) ? data : data?.items || [];
+    const { data } = await getModelConfigs({ status: "active" });
+    const list = Array.isArray(data) ? data : data?.items || [];
+    scorerModelConfigs.value = list.filter((item) => item?.status === "active");
   } catch (error) {
     ElMessage.error(error.message || "加载模型配置失败");
   } finally {

@@ -1450,3 +1450,95 @@ GET /api/prompt-test-runs/18/compare?baseline_run_id=16
 - `run_id` 不存在：`404 prompt test run not found`
 - `baseline_run_id` 不存在：`404 prompt test run not found`
 - `run_id == baseline_run_id`：`400 run_id and baseline_run_id cannot be the same`
+
+## 13. Prompt 版本状态管理（DEL-1）
+
+状态定义：
+- `active`：启用，可用于下拉选择
+- `inactive`：禁用，管理列表可见但不建议用于下拉
+- `deleted`：软删除，不物理删除
+
+### PUT `/api/prompt-versions/{prompt_version_id}/status`
+接口说明：更新 Prompt 版本状态（启用/禁用/软删除）。
+
+请求示例：
+
+```json
+{
+  "status": "inactive"
+}
+```
+
+`status` 仅支持：`active` / `inactive` / `deleted`
+
+错误规则：
+- 不存在：`404 prompt version not found`
+- 非法状态：`400` 或 `422`
+
+### DELETE `/api/prompt-versions/{prompt_version_id}`
+接口说明：软删除 Prompt 版本（等价于 `status=deleted`）。
+
+说明：
+- 不物理删除数据库记录
+- 不影响历史执行记录
+
+错误规则：
+- 不存在：`404 prompt version not found`
+
+### GET `/api/prompt-versions` 状态过滤
+支持 query 参数 `status`：
+- `status=active`：只返回 `active`
+- `status=inactive`：只返回 `inactive`
+- `status=deleted`：只返回 `deleted`
+- `status=all`：返回全部状态
+- 不传 `status`：默认返回 `active + inactive`，不返回 `deleted`
+
+## 14. 模型配置状态管理（DEL-1）
+
+状态定义与 Prompt 版本一致：`active` / `inactive` / `deleted`。
+
+### PUT `/api/model-configs/{model_config_id}/status`
+接口说明：更新模型配置状态（启用/禁用/软删除）。
+
+请求示例：
+
+```json
+{
+  "status": "inactive"
+}
+```
+
+`status` 仅支持：`active` / `inactive` / `deleted`
+
+错误规则：
+- 不存在：`404 model config not found`
+- 非法状态：`400` 或 `422`
+
+### DELETE `/api/model-configs/{model_config_id}`
+接口说明：软删除模型配置（等价于 `status=deleted`）。
+
+说明：
+- 不物理删除数据库记录
+- 不影响历史执行记录
+
+错误规则：
+- 不存在：`404 model config not found`
+
+### GET `/api/model-configs` 状态过滤
+支持 query 参数 `status`：
+- `status=active`：只返回 `active`
+- `status=inactive`：只返回 `inactive`
+- `status=deleted`：只返回 `deleted`
+- `status=all`：返回全部状态
+- 不传 `status`：默认返回 `active + inactive`，不返回 `deleted`
+
+## 15. 暂缓说明（DEL-1）
+
+以下对象的启用/禁用/删除能力本轮暂缓，后续单独设计：
+- `test_targets`
+- `test_cases`
+- `test_suites`
+
+原因：
+- 需要结合现有表结构与历史引用关系进一步评估
+- 避免影响老流程与历史数据可追溯性

@@ -117,6 +117,19 @@ def list_prompt_versions(db: Session) -> list[models.PromptVersion]:
     return db.query(models.PromptVersion).order_by(models.PromptVersion.id.desc()).all()
 
 
+def list_prompt_versions_by_status(db: Session, status_filter: str) -> list[models.PromptVersion]:
+    query = db.query(models.PromptVersion)
+    if status_filter == "all":
+        return query.order_by(models.PromptVersion.id.desc()).all()
+    if status_filter in {"active", "inactive", "deleted"}:
+        return query.filter(models.PromptVersion.status == status_filter).order_by(models.PromptVersion.id.desc()).all()
+    return (
+        query.filter(models.PromptVersion.status.in_(["active", "inactive"]))
+        .order_by(models.PromptVersion.id.desc())
+        .all()
+    )
+
+
 def get_prompt_version(db: Session, prompt_version_id: int) -> Optional[models.PromptVersion]:
     return db.query(models.PromptVersion).filter(models.PromptVersion.id == prompt_version_id).first()
 
@@ -141,6 +154,19 @@ def update_prompt_version(
     return prompt_version
 
 
+def update_prompt_version_status(
+    db: Session,
+    prompt_version: models.PromptVersion,
+    status: str,
+) -> models.PromptVersion:
+    prompt_version.status = status
+    prompt_version.updated_at = datetime.utcnow()
+    db.add(prompt_version)
+    db.commit()
+    db.refresh(prompt_version)
+    return prompt_version
+
+
 def create_model_config(db: Session, payload: schemas.ModelConfigCreate) -> models.ModelConfig:
     obj = models.ModelConfig(**payload.model_dump())
     db.add(obj)
@@ -151,6 +177,19 @@ def create_model_config(db: Session, payload: schemas.ModelConfigCreate) -> mode
 
 def list_model_configs(db: Session) -> list[models.ModelConfig]:
     return db.query(models.ModelConfig).order_by(models.ModelConfig.id.desc()).all()
+
+
+def list_model_configs_by_status(db: Session, status_filter: str) -> list[models.ModelConfig]:
+    query = db.query(models.ModelConfig)
+    if status_filter == "all":
+        return query.order_by(models.ModelConfig.id.desc()).all()
+    if status_filter in {"active", "inactive", "deleted"}:
+        return query.filter(models.ModelConfig.status == status_filter).order_by(models.ModelConfig.id.desc()).all()
+    return (
+        query.filter(models.ModelConfig.status.in_(["active", "inactive"]))
+        .order_by(models.ModelConfig.id.desc())
+        .all()
+    )
 
 
 def get_model_config(db: Session, model_config_id: int) -> Optional[models.ModelConfig]:
@@ -166,6 +205,19 @@ def update_model_config(
     for key, value in updates.items():
         setattr(model_config, key, value)
 
+    model_config.updated_at = datetime.utcnow()
+    db.add(model_config)
+    db.commit()
+    db.refresh(model_config)
+    return model_config
+
+
+def update_model_config_status(
+    db: Session,
+    model_config: models.ModelConfig,
+    status: str,
+) -> models.ModelConfig:
+    model_config.status = status
     model_config.updated_at = datetime.utcnow()
     db.add(model_config)
     db.commit()

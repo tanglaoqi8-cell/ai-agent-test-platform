@@ -25,7 +25,11 @@
             <el-tag :type="scope.row.is_default ? 'success' : 'info'">{{ scope.row.is_default ? "是" : "否" }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="100" />
+        <el-table-column label="状态" width="100">
+          <template #default="scope">
+            <el-tag :type="statusTagType(scope.row.status)">{{ statusText(scope.row.status) }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
         <el-table-column label="创建时间" min-width="160">
           <template #default="scope">{{ formatDateTimeToChina(scope.row.created_at) }}</template>
@@ -33,10 +37,37 @@
         <el-table-column label="更新时间" min-width="160">
           <template #default="scope">{{ formatDateTimeToChina(scope.row.updated_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="130" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="scope">
             <el-button link type="primary" @click="openViewDialog(scope.row.id)">查看</el-button>
             <el-button link type="primary" @click="openEditDialog(scope.row.id)">编辑</el-button>
+            <el-button
+              v-if="scope.row.status === 'active'"
+              link
+              type="warning"
+              :loading="actionLoadingId === scope.row.id"
+              @click="handleUpdateStatus(scope.row, 'inactive')"
+            >
+              禁用
+            </el-button>
+            <el-button
+              v-if="scope.row.status === 'inactive'"
+              link
+              type="success"
+              :loading="actionLoadingId === scope.row.id"
+              @click="handleUpdateStatus(scope.row, 'active')"
+            >
+              启用
+            </el-button>
+            <el-button
+              v-if="scope.row.status !== 'deleted'"
+              link
+              type="danger"
+              :loading="actionLoadingId === scope.row.id"
+              @click="handleDelete(scope.row)"
+            >
+              删除
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -126,7 +157,7 @@
         <el-descriptions-item label="Top P">{{ viewDetail.top_p }}</el-descriptions-item>
         <el-descriptions-item label="Max Tokens">{{ viewDetail.max_tokens }}</el-descriptions-item>
         <el-descriptions-item label="是否默认">{{ viewDetail.is_default ? "是" : "否" }}</el-descriptions-item>
-        <el-descriptions-item label="状态">{{ viewDetail.status }}</el-descriptions-item>
+        <el-descriptions-item label="状态">{{ statusText(viewDetail.status) }}</el-descriptions-item>
         <el-descriptions-item label="备注" :span="2">{{ viewDetail.remark || "-" }}</el-descriptions-item>
         <el-descriptions-item label="创建时间">{{ formatDateTimeToChina(viewDetail.created_at) }}</el-descriptions-item>
         <el-descriptions-item label="更新时间">{{ formatDateTimeToChina(viewDetail.updated_at) }}</el-descriptions-item>
@@ -141,12 +172,20 @@
 
 <script setup>
 import { onMounted, reactive, ref } from "vue";
-import { ElMessage } from "element-plus";
-import { createModelConfig, getModelConfigDetail, getModelConfigs, updateModelConfig } from "../api/modelConfigs";
+import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  createModelConfig,
+  deleteModelConfig,
+  getModelConfigDetail,
+  getModelConfigs,
+  updateModelConfig,
+  updateModelConfigStatus
+} from "../api/modelConfigs";
 import { formatDateTimeToChina } from "../utils/time";
 
 const listLoading = ref(false);
 const list = ref([]);
+const actionLoadingId = ref(null);
 
 const formDialogVisible = ref(false);
 const viewDialogVisible = ref(false);
@@ -183,6 +222,19 @@ const formRules = {
 
 function normalizeListResponse(data) {
   return Array.isArray(data) ? data : data?.items || [];
+}
+
+function statusText(status) {
+  if (status === "active") return "启用";
+  if (status === "inactive") return "禁用";
+  if (status === "deleted") return "已删除";
+  return status || "-";
+}
+
+function statusTagType(status) {
+  if (status === "active") return "success";
+  if (status === "inactive") return "warning";
+  return "info";
 }
 
 function normalizeDetailToForm(detail) {
@@ -231,11 +283,59 @@ async function fetchList() {
   listLoading.value = true;
   try {
     const { data } = await getModelConfigs();
-    list.value = normalizeListResponse(data);
+    list.value = normalizeListResponse(data).filter((item) => item?.status !== "deleted");
   } catch (error) {
     ElMessage.error(error.message || "获取模型配置列表失败");
   } finally {
     listLoading.value = false;
+  }
+}
+
+async function handleUpdateStatus(row, targetStatus) {
+  const modelConfigId = row?.id;
+  if (!modelConfigId) return;
+  const isActive = targetStatus === "active";
+  const title = isActive ? "确认启用该模型配置吗？" : "确认禁用该模型配置吗？禁用后不会出现在执行和评分页面下拉框中。";
+  try {
+    await ElMessageBox.confirm(title, "提示", { type: "warning", confirmButtonText: "确认", cancelButtonText: "取消" });
+  } catch {
+    return;
+  }
+
+  actionLoadingId.value = modelConfigId;
+  try {
+    await updateModelConfigStatus(modelConfigId, targetStatus);
+    ElMessage.success(isActive ? "启用成功" : "禁用成功");
+    await fetchList();
+  } catch (error) {
+    ElMessage.error(error.message || "状态更新失败");
+  } finally {
+    actionLoadingId.value = null;
+  }
+}
+
+async function handleDelete(row) {
+  const modelConfigId = row?.id;
+  if (!modelConfigId) return;
+  try {
+    await ElMessageBox.confirm(
+      "确认删除该模型配置吗？删除后默认不再显示，但不会影响历史执行记录。",
+      "二次确认",
+      { type: "warning", confirmButtonText: "确认删除", cancelButtonText: "取消" }
+    );
+  } catch {
+    return;
+  }
+
+  actionLoadingId.value = modelConfigId;
+  try {
+    await deleteModelConfig(modelConfigId);
+    ElMessage.success("删除成功");
+    await fetchList();
+  } catch (error) {
+    ElMessage.error(error.message || "删除失败");
+  } finally {
+    actionLoadingId.value = null;
   }
 }
 

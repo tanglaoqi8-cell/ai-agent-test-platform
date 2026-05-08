@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 TARGET_TYPES = {"prompt", "agent_http", "rag_http"}
 ASSERT_TYPES = {"contains", "regex", "json_valid"}
+STATUS_VALUES = {"active", "inactive", "deleted"}
+LIST_STATUS_FILTER_VALUES = {"active", "inactive", "deleted", "all"}
 
 
 class TestTargetCreate(BaseModel):
@@ -195,6 +197,17 @@ class ModelConfigRead(ModelConfigBase):
 
     class Config:
         from_attributes = True
+
+
+class StatusUpdateRequest(BaseModel):
+    status: str
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        if value not in STATUS_VALUES:
+            raise ValueError("status must be one of: active, inactive, deleted")
+        return value
 
 
 class PromptRunOnceRequest(BaseModel):
