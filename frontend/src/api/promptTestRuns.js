@@ -26,6 +26,16 @@ export function getPromptManualReviews(runId) {
   return request.get(`/prompt-test-runs/${runId}/manual-reviews`);
 }
 
+export function getPromptTestRunSummary(runId) {
+  return request.get(`/prompt-test-runs/${runId}/summary`);
+}
+
+export function getPromptTestRunMarkdownReport(runId) {
+  return request.get(`/prompt-test-runs/${runId}/report-markdown`, {
+    responseType: "text"
+  });
+}
+
 export function runPromptOnce(data) {
   return request.post("/prompt-test-runs/run-once", data, {
     timeout: 300000

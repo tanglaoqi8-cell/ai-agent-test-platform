@@ -58,6 +58,8 @@
           <div class="detail-actions">
             <el-button type="primary" @click="openScoreDialog">发起 LLM 自动评分</el-button>
             <el-button type="warning" @click="openManualReviewDialog">提交人工复核</el-button>
+            <el-button type="success" @click="openSummaryDialog">查看摘要报告</el-button>
+            <el-button type="info" @click="openMarkdownDialog">查看 Markdown 报告</el-button>
             <el-button @click="refreshDetail">刷新详情</el-button>
           </div>
 
@@ -164,6 +166,100 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="summaryDialogVisible"
+      :title="`Prompt 摘要报告 - 执行批次ID ${detailRunId || '-'}`"
+      width="70%"
+    >
+      <div v-loading="summaryLoading">
+        <template v-if="summaryData">
+          <div class="section-title">执行基本信息</div>
+          <el-descriptions :column="2" border>
+            <el-descriptions-item label="执行批次ID">{{ summaryBasicInfo.run_id }}</el-descriptions-item>
+            <el-descriptions-item label="执行状态">{{ summaryBasicInfo.status }}</el-descriptions-item>
+            <el-descriptions-item label="Prompt版本ID">{{ summaryBasicInfo.prompt_version_id }}</el-descriptions-item>
+            <el-descriptions-item label="模型配置ID">{{ summaryBasicInfo.model_config_id }}</el-descriptions-item>
+          </el-descriptions>
+
+          <div class="section-title">结果统计</div>
+          <el-descriptions :column="2" border>
+            <el-descriptions-item label="总执行次数">{{ summaryStats.total }}</el-descriptions-item>
+            <el-descriptions-item label="成功次数">{{ summaryStats.success_count }}</el-descriptions-item>
+            <el-descriptions-item label="失败次数">{{ summaryStats.failed_count }}</el-descriptions-item>
+            <el-descriptions-item label="成功率">{{ summaryStats.success_rate }}</el-descriptions-item>
+            <el-descriptions-item label="断言通过次数">{{ summaryStats.assert_passed_count }}</el-descriptions-item>
+            <el-descriptions-item label="断言失败次数">{{ summaryStats.assert_failed_count }}</el-descriptions-item>
+            <el-descriptions-item label="断言跳过次数">{{ summaryStats.assert_skipped_count }}</el-descriptions-item>
+            <el-descriptions-item label="断言通过率">{{ summaryStats.assert_pass_rate }}</el-descriptions-item>
+          </el-descriptions>
+
+          <div class="section-title">最新评分</div>
+          <template v-if="summaryLatestScore">
+            <el-descriptions :column="2" border>
+              <el-descriptions-item label="总分">{{ resolveField(summaryLatestScore, ["total_score", "score"]) }}</el-descriptions-item>
+              <el-descriptions-item label="评分状态">{{ resolveField(summaryLatestScore, ["status"]) }}</el-descriptions-item>
+              <el-descriptions-item label="评分理由" :span="2">
+                {{ resolveField(summaryLatestScore, ["score_reason", "reason"]) }}
+              </el-descriptions-item>
+            </el-descriptions>
+          </template>
+          <el-empty v-else description="暂无 LLM 自动评分" />
+
+          <div class="section-title">最新人工复核</div>
+          <template v-if="summaryLatestManualReview">
+            <el-descriptions :column="2" border>
+              <el-descriptions-item label="人工判定">
+                {{ resolveField(summaryLatestManualReview, ["manual_status", "status"]) }}
+              </el-descriptions-item>
+              <el-descriptions-item label="复核人">{{ resolveField(summaryLatestManualReview, ["reviewer"]) }}</el-descriptions-item>
+              <el-descriptions-item label="人工备注" :span="2">
+                {{ resolveField(summaryLatestManualReview, ["manual_remark", "remark"]) }}
+              </el-descriptions-item>
+              <el-descriptions-item label="复核时间">
+                {{ formatDateTimeToChina(resolveField(summaryLatestManualReview, ["created_at", "updated_at"])) }}
+              </el-descriptions-item>
+            </el-descriptions>
+          </template>
+          <el-empty v-else description="暂无人工复核记录" />
+
+          <div class="section-title">人工确认建议</div>
+          <el-descriptions :column="1" border>
+            <el-descriptions-item label="need_manual_check">{{ summaryManualCheck.need_manual_check }}</el-descriptions-item>
+            <el-descriptions-item label="reasons">
+              <pre class="long-block small">{{ summaryManualCheck.reasons }}</pre>
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <div class="section-title">失败摘要</div>
+          <template v-if="summaryFailureList.length">
+            <el-table :data="summaryFailureList" border>
+              <el-table-column prop="case_id" label="用例ID" width="110" />
+              <el-table-column prop="case_name" label="用例名称" min-width="180" />
+              <el-table-column prop="reason" label="原因摘要" min-width="240" show-overflow-tooltip />
+            </el-table>
+          </template>
+          <el-empty v-else description="暂无失败摘要" />
+        </template>
+      </div>
+      <template #footer>
+        <el-button type="primary" @click="summaryDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="markdownDialogVisible"
+      :title="`Markdown 测试报告 - 执行批次ID ${detailRunId || '-'}`"
+      width="75%"
+    >
+      <div v-loading="markdownLoading">
+        <pre class="long-block markdown-block">{{ markdownContent }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="copyMarkdown">复制 Markdown</el-button>
+        <el-button type="primary" @click="markdownDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="scoreDialogVisible" title="发起 LLM 自动评分" width="640px" @closed="resetScoreDialog">
       <el-form ref="scoreFormRef" :model="scoreForm" :rules="scoreFormRules" label-width="130px">
         <el-form-item label="评分模型配置" prop="scorer_model_config_id">
@@ -229,8 +325,10 @@ import { ElMessage } from "element-plus";
 import { getModelConfigs } from "../api/modelConfigs";
 import {
   createPromptManualReview,
+  getPromptTestRunMarkdownReport,
   getPromptTestRunDetail,
   getPromptTestRuns,
+  getPromptTestRunSummary,
   scorePromptTestRun
 } from "../api/promptTestRuns";
 import { formatDateTimeToChina } from "../utils/time";
@@ -253,6 +351,12 @@ const scoreFormRef = ref(null);
 const manualReviewDialogVisible = ref(false);
 const manualReviewSubmitting = ref(false);
 const manualReviewFormRef = ref(null);
+const summaryDialogVisible = ref(false);
+const summaryLoading = ref(false);
+const summaryData = ref(null);
+const markdownDialogVisible = ref(false);
+const markdownLoading = ref(false);
+const markdownContent = ref("-");
 
 const scoreForm = reactive({
   scorer_model_config_id: null,
@@ -312,6 +416,12 @@ const resolvedSnapshot = computed(() => {
 const latestScore = computed(() => detailData.value?.latest_score || null);
 const latestManualReview = computed(() => detailData.value?.latest_manual_review || null);
 const normalizedRunBasicInfo = computed(() => normalizeRunBasicInfo(detailData.value));
+const summaryBasicInfo = computed(() => normalizeRunBasicInfo(summaryData.value));
+const summaryStats = computed(() => normalizeSummaryStats(summaryData.value));
+const summaryLatestScore = computed(() => summaryData.value?.latest_score || summaryData.value?.score || null);
+const summaryLatestManualReview = computed(() => summaryData.value?.latest_manual_review || summaryData.value?.manual_review || null);
+const summaryManualCheck = computed(() => normalizeSummaryManualCheck(summaryData.value));
+const summaryFailureList = computed(() => normalizeSummaryFailureList(summaryData.value));
 
 function resolveRunId(item) {
   return item?.run_id ?? item?.id ?? "-";
@@ -532,6 +642,41 @@ function normalizeRunBasicInfo(detail) {
   };
 }
 
+function normalizeSummaryStats(data) {
+  const d = data || {};
+  const stat = d.summary || d.stats || d.statistics || d;
+  return {
+    total: stat.total ?? stat.total_count ?? stat.run_total ?? "-",
+    success_count: stat.success_count ?? stat.success ?? stat.passed_count ?? "-",
+    failed_count: stat.failed_count ?? stat.failed ?? "-",
+    success_rate: stat.success_rate ?? stat.pass_rate ?? "-",
+    assert_passed_count: stat.assert_passed_count ?? stat.assertion_passed_count ?? "-",
+    assert_failed_count: stat.assert_failed_count ?? stat.assertion_failed_count ?? "-",
+    assert_skipped_count: stat.assert_skipped_count ?? stat.assertion_skipped_count ?? "-",
+    assert_pass_rate: stat.assert_pass_rate ?? stat.assertion_pass_rate ?? "-"
+  };
+}
+
+function normalizeSummaryManualCheck(data) {
+  const d = data || {};
+  const manual = d.manual_check || d.manual_advice || {};
+  const reasons = manual.reasons ?? d.reasons ?? [];
+  return {
+    need_manual_check: manual.need_manual_check ?? d.need_manual_check ?? "-",
+    reasons: Array.isArray(reasons) ? (reasons.length ? reasons.join("\n") : "-") : formatMaybeJson(reasons)
+  };
+}
+
+function normalizeSummaryFailureList(data) {
+  const list = data?.failure_summary || data?.failures || [];
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, 5).map((item, index) => ({
+    case_id: item?.case_id ?? item?.id ?? index + 1,
+    case_name: item?.case_name ?? item?.name ?? "-",
+    reason: summarizeOutput(item?.reason ?? item?.message ?? item?.error_message ?? "-")
+  }));
+}
+
 async function fetchRuns() {
   listLoading.value = true;
   try {
@@ -682,12 +827,69 @@ async function submitManualReview() {
   }
 }
 
+async function openSummaryDialog() {
+  if (!detailRunId.value) return;
+  summaryDialogVisible.value = true;
+  summaryLoading.value = true;
+  summaryData.value = null;
+  try {
+    const { data } = await getPromptTestRunSummary(detailRunId.value);
+    summaryData.value = data || {};
+  } catch (error) {
+    ElMessage.error(error.message || "获取摘要报告失败");
+  } finally {
+    summaryLoading.value = false;
+  }
+}
+
+async function openMarkdownDialog() {
+  if (!detailRunId.value) return;
+  markdownDialogVisible.value = true;
+  markdownLoading.value = true;
+  markdownContent.value = "-";
+  try {
+    const { data } = await getPromptTestRunMarkdownReport(detailRunId.value);
+    markdownContent.value = data ? String(data) : "-";
+  } catch (error) {
+    ElMessage.error(error.message || "获取 Markdown 报告失败");
+  } finally {
+    markdownLoading.value = false;
+  }
+}
+
+async function copyMarkdown() {
+  const text = markdownContent.value || "";
+  if (!text || text === "-") return;
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+    ElMessage.success("已复制");
+  } catch {
+    ElMessage.error("复制失败，请手动复制");
+  }
+}
+
 function closeDetail() {
   detailData.value = null;
   detailRunId.value = null;
   detailLoading.value = false;
   scoreDialogVisible.value = false;
   manualReviewDialogVisible.value = false;
+  summaryDialogVisible.value = false;
+  markdownDialogVisible.value = false;
+  summaryData.value = null;
+  markdownContent.value = "-";
 }
 
 onMounted(fetchRuns);
@@ -762,5 +964,9 @@ onMounted(fetchRuns);
 
 .w-100 {
   width: 100%;
+}
+
+.markdown-block {
+  max-height: 60vh;
 }
 </style>
