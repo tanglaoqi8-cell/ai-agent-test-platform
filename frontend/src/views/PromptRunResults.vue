@@ -60,6 +60,7 @@
             <el-button type="warning" @click="openManualReviewDialog">提交人工复核</el-button>
             <el-button type="success" @click="openSummaryDialog">查看摘要报告</el-button>
             <el-button type="info" @click="openMarkdownDialog">查看 Markdown 报告</el-button>
+            <el-button type="primary" plain @click="openCompareDialog">Run 对比</el-button>
             <el-button @click="refreshDetail">刷新详情</el-button>
           </div>
 
@@ -260,6 +261,94 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="compareDialogVisible"
+      :title="`Run 对比 - 当前执行批次ID ${detailRunId || '-'}`"
+      width="80%"
+      @closed="resetCompareDialog"
+    >
+      <el-form ref="compareFormRef" :model="compareForm" :rules="compareFormRules" label-width="130px">
+        <el-form-item label="基线执行批次ID" prop="baseline_run_id">
+          <el-input
+            v-model="compareForm.baseline_run_id"
+            placeholder="请输入基线执行批次ID"
+            clearable
+          />
+        </el-form-item>
+      </el-form>
+
+      <div class="compare-actions">
+        <el-button type="primary" :loading="compareLoading" @click="submitCompare">开始对比</el-button>
+      </div>
+
+      <template v-if="compareResult">
+        <div class="section-title">基本信息</div>
+        <el-descriptions :column="3" border>
+          <el-descriptions-item label="当前执行批次ID">{{ compareBasicInfo.current_run_id }}</el-descriptions-item>
+          <el-descriptions-item label="基线执行批次ID">{{ compareBasicInfo.baseline_run_id }}</el-descriptions-item>
+          <el-descriptions-item label="基线关系">
+            {{ compareBasicInfo.baseline_relation_matched }}
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <div class="section-title">对比结论</div>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="结论">
+            <el-tag>{{ compareConclusion }}</el-tag>
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <div class="section-title">指标差异</div>
+        <el-descriptions :column="3" border>
+          <el-descriptions-item label="成功率差异">{{ compareDiff.success_rate_diff }}</el-descriptions-item>
+          <el-descriptions-item label="断言通过率差异">{{ compareDiff.assertion_pass_rate_diff }}</el-descriptions-item>
+          <el-descriptions-item label="LLM总分差异">{{ compareDiff.total_score_diff }}</el-descriptions-item>
+        </el-descriptions>
+
+        <div class="section-title">当前 Run 摘要</div>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="执行状态">{{ compareCurrentSummary.status }}</el-descriptions-item>
+          <el-descriptions-item label="Prompt版本ID">{{ compareCurrentSummary.prompt_version_id }}</el-descriptions-item>
+          <el-descriptions-item label="模型配置ID">{{ compareCurrentSummary.model_config_id }}</el-descriptions-item>
+          <el-descriptions-item label="总执行次数">{{ compareCurrentSummary.total }}</el-descriptions-item>
+          <el-descriptions-item label="成功次数">{{ compareCurrentSummary.success_count }}</el-descriptions-item>
+          <el-descriptions-item label="失败次数">{{ compareCurrentSummary.failed_count }}</el-descriptions-item>
+          <el-descriptions-item label="成功率">{{ compareCurrentSummary.success_rate }}</el-descriptions-item>
+          <el-descriptions-item label="断言通过率">{{ compareCurrentSummary.assert_pass_rate }}</el-descriptions-item>
+          <el-descriptions-item label="最新评分总分">{{ compareCurrentSummary.latest_score_total }}</el-descriptions-item>
+          <el-descriptions-item label="最新人工复核">{{ compareCurrentSummary.latest_manual_review }}</el-descriptions-item>
+        </el-descriptions>
+
+        <div class="section-title">基线 Run 摘要</div>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="执行状态">{{ compareBaselineSummary.status }}</el-descriptions-item>
+          <el-descriptions-item label="Prompt版本ID">{{ compareBaselineSummary.prompt_version_id }}</el-descriptions-item>
+          <el-descriptions-item label="模型配置ID">{{ compareBaselineSummary.model_config_id }}</el-descriptions-item>
+          <el-descriptions-item label="总执行次数">{{ compareBaselineSummary.total }}</el-descriptions-item>
+          <el-descriptions-item label="成功次数">{{ compareBaselineSummary.success_count }}</el-descriptions-item>
+          <el-descriptions-item label="失败次数">{{ compareBaselineSummary.failed_count }}</el-descriptions-item>
+          <el-descriptions-item label="成功率">{{ compareBaselineSummary.success_rate }}</el-descriptions-item>
+          <el-descriptions-item label="断言通过率">{{ compareBaselineSummary.assert_pass_rate }}</el-descriptions-item>
+          <el-descriptions-item label="最新评分总分">{{ compareBaselineSummary.latest_score_total }}</el-descriptions-item>
+          <el-descriptions-item label="最新人工复核">{{ compareBaselineSummary.latest_manual_review }}</el-descriptions-item>
+        </el-descriptions>
+
+        <div class="section-title">对比原因</div>
+        <pre class="long-block small">{{ compareReasonsText }}</pre>
+
+        <div class="section-title">人工确认建议</div>
+        <el-descriptions :column="1" border>
+          <el-descriptions-item label="是否建议人工确认">{{ compareManualSuggestion.need_manual_check }}</el-descriptions-item>
+          <el-descriptions-item label="原因">
+            <pre class="long-block small">{{ compareManualSuggestion.reasons }}</pre>
+          </el-descriptions-item>
+        </el-descriptions>
+      </template>
+      <template #footer>
+        <el-button @click="compareDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="scoreDialogVisible" title="发起 LLM 自动评分" width="640px" @closed="resetScoreDialog">
       <el-form ref="scoreFormRef" :model="scoreForm" :rules="scoreFormRules" label-width="130px">
         <el-form-item label="评分模型配置" prop="scorer_model_config_id">
@@ -324,6 +413,7 @@ import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { getModelConfigs } from "../api/modelConfigs";
 import {
+  comparePromptTestRuns,
   createPromptManualReview,
   getPromptTestRunMarkdownReport,
   getPromptTestRunDetail,
@@ -357,6 +447,10 @@ const summaryData = ref(null);
 const markdownDialogVisible = ref(false);
 const markdownLoading = ref(false);
 const markdownContent = ref("-");
+const compareDialogVisible = ref(false);
+const compareLoading = ref(false);
+const compareResult = ref(null);
+const compareFormRef = ref(null);
 
 const scoreForm = reactive({
   scorer_model_config_id: null,
@@ -376,6 +470,28 @@ const manualReviewForm = reactive({
 
 const manualReviewRules = {
   manual_status: [{ required: true, message: "请选择人工判定", trigger: "change" }]
+};
+const compareForm = reactive({
+  baseline_run_id: ""
+});
+const compareFormRules = {
+  baseline_run_id: [
+    { required: true, message: "请输入基线执行批次ID", trigger: "blur" },
+    {
+      validator: (_, value, callback) => {
+        if (!/^\d+$/.test(String(value || "").trim())) {
+          callback(new Error("基线执行批次ID必须是数字"));
+          return;
+        }
+        if (String(value).trim() === String(detailRunId.value)) {
+          callback(new Error("基线执行批次ID不能与当前执行批次ID相同"));
+          return;
+        }
+        callback();
+      },
+      trigger: "blur"
+    }
+  ]
 };
 
 const filteredRuns = computed(() => {
@@ -422,6 +538,36 @@ const summaryLatestScore = computed(() => summaryData.value?.latest_score || sum
 const summaryLatestManualReview = computed(() => summaryData.value?.latest_manual_review || summaryData.value?.manual_review || null);
 const summaryManualCheck = computed(() => normalizeSummaryManualCheck(summaryData.value));
 const summaryFailureList = computed(() => normalizeSummaryFailureList(summaryData.value));
+const compareBasicInfo = computed(() => {
+  const d = compareResult.value || {};
+  return {
+    current_run_id: d.current_run_id ?? detailRunId.value ?? "-",
+    baseline_run_id: d.baseline_run_id ?? compareForm.baseline_run_id ?? "-",
+    baseline_relation_matched: formatBaselineRelationMatched(d.baseline_relation_matched)
+  };
+});
+const compareConclusion = computed(() => {
+  const result = compareResult.value?.comparison?.result;
+  const map = {
+    better: "当前更好",
+    worse: "当前更差",
+    equal: "基本一致",
+    need_manual_check: "需要人工确认"
+  };
+  return map[result] || "-";
+});
+const compareDiff = computed(() => {
+  const c = compareResult.value?.comparison || {};
+  return {
+    success_rate_diff: formatRateDiff(c.success_rate_diff),
+    assertion_pass_rate_diff: formatRateDiff(c.assertion_pass_rate_diff),
+    total_score_diff: formatScoreDiff(c.total_score_diff)
+  };
+});
+const compareCurrentSummary = computed(() => normalizeCompareSummary(compareResult.value?.current_summary));
+const compareBaselineSummary = computed(() => normalizeCompareSummary(compareResult.value?.baseline_summary));
+const compareManualSuggestion = computed(() => normalizeCompareManualSuggestion(compareResult.value?.manual_check_suggestion));
+const compareReasonsText = computed(() => normalizeCompareReasons(compareResult.value?.comparison?.reasons));
 
 function resolveRunId(item) {
   return item?.run_id ?? item?.id ?? "-";
@@ -677,6 +823,71 @@ function normalizeSummaryFailureList(data) {
   }));
 }
 
+function formatBaselineRelationMatched(value) {
+  if (value === true) return "基线关系匹配";
+  if (value === false) return "基线关系不匹配";
+  return "未配置基线关系";
+}
+
+function formatRateDiff(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  const num = Number(value);
+  if (!Number.isFinite(num)) return String(value);
+  const pct = (num * 100).toFixed(2);
+  return `${num > 0 ? "+" : ""}${pct}%`;
+}
+
+function formatScoreDiff(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  const num = Number(value);
+  if (!Number.isFinite(num)) return String(value);
+  if (num > 0) return `+${num}`;
+  return String(num);
+}
+
+function normalizeCompareSummary(summary) {
+  const s = summary || {};
+  return {
+    status: resolveField(s, ["status", "run_status"]),
+    prompt_version_id: resolveField(s, ["prompt_version_id"]),
+    model_config_id: resolveField(s, ["model_config_id"]),
+    total: resolveField(s, ["total", "total_count"]),
+    success_count: resolveField(s, ["success_count", "success"]),
+    failed_count: resolveField(s, ["failed_count", "failed"]),
+    success_rate: resolveField(s, ["success_rate", "pass_rate"]),
+    assert_pass_rate: resolveField(s, ["assert_pass_rate", "assertion_pass_rate"]),
+    latest_score_total:
+      resolveField(s?.latest_score || {}, ["total_score", "score"]) !== "-"
+        ? resolveField(s?.latest_score || {}, ["total_score", "score"])
+        : "-",
+    latest_manual_review:
+      resolveField(s?.latest_manual_review || {}, ["manual_status", "status"]) !== "-"
+        ? resolveField(s?.latest_manual_review || {}, ["manual_status", "status"])
+        : "-"
+  };
+}
+
+function normalizeCompareReasons(reasons) {
+  if (Array.isArray(reasons)) {
+    return reasons.length ? reasons.join("\n") : "暂无对比原因";
+  }
+  if (reasons && String(reasons).trim()) return String(reasons);
+  return "暂无对比原因";
+}
+
+function normalizeCompareManualSuggestion(data) {
+  const s = data || {};
+  const rawNeed = s.need_manual_check;
+  let needManual = "-";
+  if (rawNeed === true) needManual = "是";
+  else if (rawNeed === false) needManual = "否";
+  const reasons = Array.isArray(s.reasons) ? (s.reasons.length ? s.reasons.join("\n") : "暂无") : s.reasons || "暂无";
+  return {
+    need_manual_check: needManual,
+    reasons
+  };
+}
+
 async function fetchRuns() {
   listLoading.value = true;
   try {
@@ -881,6 +1092,39 @@ async function copyMarkdown() {
   }
 }
 
+function openCompareDialog() {
+  compareDialogVisible.value = true;
+}
+
+function resetCompareDialog() {
+  compareForm.baseline_run_id = "";
+  compareFormRef.value?.clearValidate();
+  compareLoading.value = false;
+  compareResult.value = null;
+}
+
+async function submitCompare() {
+  if (!detailRunId.value || !compareFormRef.value) return;
+  const valid = await compareFormRef.value.validate().catch(() => false);
+  if (!valid) return;
+  compareLoading.value = true;
+  try {
+    const { data } = await comparePromptTestRuns(detailRunId.value, Number(compareForm.baseline_run_id));
+    compareResult.value = data || {};
+  } catch (error) {
+    const status = error?.response?.status;
+    if (status === 400) {
+      ElMessage.error("对比参数无效，请检查基线执行批次ID。");
+    } else if (status === 404) {
+      ElMessage.error("基线执行批次不存在，请确认后重试。");
+    } else {
+      ElMessage.error(error.message || "Run 对比失败");
+    }
+  } finally {
+    compareLoading.value = false;
+  }
+}
+
 function closeDetail() {
   detailData.value = null;
   detailRunId.value = null;
@@ -889,8 +1133,10 @@ function closeDetail() {
   manualReviewDialogVisible.value = false;
   summaryDialogVisible.value = false;
   markdownDialogVisible.value = false;
+  compareDialogVisible.value = false;
   summaryData.value = null;
   markdownContent.value = "-";
+  compareResult.value = null;
 }
 
 onMounted(fetchRuns);
@@ -969,5 +1215,9 @@ onMounted(fetchRuns);
 
 .markdown-block {
   max-height: 60vh;
+}
+
+.compare-actions {
+  margin-bottom: 12px;
 }
 </style>

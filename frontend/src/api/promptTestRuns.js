@@ -36,6 +36,12 @@ export function getPromptTestRunMarkdownReport(runId) {
   });
 }
 
+export function comparePromptTestRuns(runId, baselineRunId) {
+  return request.get(`/prompt-test-runs/${runId}/compare`, {
+    params: { baseline_run_id: baselineRunId }
+  });
+}
+
 export function runPromptOnce(data) {
   return request.post("/prompt-test-runs/run-once", data, {
     timeout: 300000
